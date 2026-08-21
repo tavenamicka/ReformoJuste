@@ -1,0 +1,24 @@
+# ── Secrets ───────────────────────────────────────────────────────────────────
+# Contient mistral_api_key. Modèle versionné : config.example.json
+config.json
+
+# ── Dépendances téléchargées ──────────────────────────────────────────────────
+# ~535 Mo (JRE Temurin + LanguageTool), régénérés par setup_languagetool.ps1
+bundle/
+
+# ── Node ──────────────────────────────────────────────────────────────────────
+node_modules/
+dist/
+
+# ── Rust / Tauri ──────────────────────────────────────────────────────────────
+src-tauri/target/
+src-tauri/gen/
+**/*.rs.bk
+
+# ── Sorties de build ──────────────────────────────────────────────────────────
+# Dossier portable assemblé par distribute.ps1 (exe + bundle + config)
+ReformoJuste-Portable/
+*.exe
+*.msi
+*.bak
+*.bak-*

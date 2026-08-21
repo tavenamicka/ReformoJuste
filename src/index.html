@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ReformoJuste</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+
+    <!-- ── Barre de titre draggable ── -->
+    <header data-tauri-drag-region>
+      <span class="brand" data-tauri-drag-region>ReformoJuste</span>
+      <button id="btn-close" aria-label="Fermer" title="Fermer (Échap)">✕</button>
+    </header>
+
+<!-- ── Spinner ── -->
+    <div id="loading" class="hidden" aria-live="polite">
+      <div class="spinner"></div>
+      <span>Analyse en cours…</span>
+    </div>
+
+    <!-- ── Erreur ── -->
+    <div id="error" class="hidden" role="alert"></div>
+
+    <!-- ── Onglets : Correction prioritaire, reformulations repliées ── -->
+    <nav id="tabs" class="hidden" role="tablist" aria-label="Mode de correction">
+      <div class="tab-row" role="presentation">
+        <button class="tab active" data-key="correction" role="tab" aria-selected="true" tabindex="0">Correction</button>
+        <button id="btn-reformulate" class="tab-toggle" aria-expanded="false" aria-controls="reformulations">Reformuler ▾</button>
+      </div>
+      <div id="reformulations" class="tab-row hidden" role="presentation">
+        <button class="tab" data-key="simple"       role="tab" aria-selected="false" tabindex="-1">Simple</button>
+        <button class="tab" data-key="professional" role="tab" aria-selected="false" tabindex="-1">Pro</button>
+        <button class="tab" data-key="formal"       role="tab" aria-selected="false" tabindex="-1">Soutenu</button>
+        <button class="tab" data-key="short"         role="tab" aria-selected="false" tabindex="-1">Court</button>
+        <button class="tab" data-key="creative"      role="tab" aria-selected="false" tabindex="-1">Créatif</button>
+      </div>
+    </nav>
+
+    <!-- ── Contenu + boutons ── -->
+    <div id="result" class="hidden">
+      <div id="result-status" class="hidden" aria-live="polite"></div>
+      <div id="result-text" role="tabpanel" tabindex="0" aria-label="Texte corrigé"></div>
+      <div id="result-foot">
+        <span id="hints">⏎ Remplacer · Ctrl 1–6 onglets · Échap fermer</span>
+        <div id="btn-group">
+          <button id="btn-copy" title="Copier">Copier</button>
+          <button id="btn-replace" title="Remplacer (Entrée)">Remplacer</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="main.js"></script>
+</body>
+</html>

@@ -1,0 +1,101 @@
+{
+  "name": "SKILL_GENERALISTE",
+  "version": "1.0",
+  "description": "Skill généraliste pour personnaliser l'exécution des tâches avec 6 flags",
+  "active": true,
+  "flags": {
+    "-a": {
+      "name": "auto",
+      "description": "Mode automatique (sans validation)",
+      "effect": "Exécution directe sans demandes intermédiaires",
+      "when": "Vous voulez rapide"
+    },
+    "-examine": {
+      "name": "review",
+      "description": "Auto-revue critique du travail",
+      "effect": "Identification des erreurs et améliorations",
+      "when": "Vous voulez du sûr"
+    },
+    "-test": {
+      "name": "tests",
+      "description": "Création et exécution de tests",
+      "effect": "Tests générés, exécutés et rapportés",
+      "when": "Vous voulez fiable"
+    },
+    "-save": {
+      "name": "output",
+      "description": "Sauvegarde structurée des résultats",
+      "effect": "Archivage organisé avec manifest",
+      "when": "Vous voulez tracer"
+    },
+    "-economy": {
+      "name": "tokens",
+      "description": "Optimisation des tokens",
+      "effect": "Réponse compacte et efficace",
+      "when": "Vous voulez léger"
+    },
+    "-resume": {
+      "name": "continue",
+      "description": "Reprend une tâche interrompue",
+      "effect": "Continue où c'était arrêté",
+      "when": "Vous reprenez une tâche"
+    }
+  },
+  "recommended_combos": [
+    {
+      "combo": "-a",
+      "use_case": "Développement rapide",
+      "description": "Mode automatique simple"
+    },
+    {
+      "combo": "-a -test",
+      "use_case": "Développement avec validation",
+      "description": "Code généré avec tests"
+    },
+    {
+      "combo": "-examine -test -save",
+      "use_case": "Code critique",
+      "description": "Revu, validé, sauvegardé"
+    },
+    {
+      "combo": "-a -examine -test -save",
+      "use_case": "Production",
+      "description": "Mode complet et robuste"
+    },
+    {
+      "combo": "-economy -a",
+      "use_case": "Tâches répétitives",
+      "description": "Rapide et léger"
+    },
+    {
+      "combo": "-save -resume",
+      "use_case": "Tâches longues",
+      "description": "Reprise sûre et tracée"
+    }
+  ],
+  "priority_on_conflict": [
+    "-examine",
+    "-test",
+    "-save",
+    "-resume",
+    "-economy",
+    "-a"
+  ],
+  "documentation": "SKILL_generaliste.md",
+  "quick_reference": "CHEAT_SHEET.md",
+  "installation_guide": "INSTALLATION.md",
+  "auto_detect": true,
+  "case_sensitive": false,
+  "supports": [
+    "Claude Chat",
+    "Claude Code",
+    "Claude Cowork",
+    "All projects"
+  ],
+  "metadata": {
+    "created": "2026-05-27",
+    "author": "Mickatch",
+    "status": "Production Ready",
+    "version": "1.0"
+  }
+}

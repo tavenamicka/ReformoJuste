@@ -1,0 +1,28 @@
+{
+  "ai_provider": "auto",
+
+  "mistral_api_key": "",
+  "mistral_model": "mistral-small-latest",
+
+  "local": {
+    "base_url": "http://localhost:11434",
+    "model": "gemma3:4b",
+    "provider": "ollama"
+  },
+
+  "languagetool": {
+    "base_url": "http://localhost:8082",
+    "language": "fr"
+  },
+
+  "hotkey": {
+    "double_press_ms": 400
+  },
+
+  "popup": {
+    "width": 446,
+    "height": 286,
+    "offset_x": 20,
+    "offset_y": 20
+  }
+}

@@ -1,0 +1,61 @@
+{
+  "package": {
+    "productName": "ReformoJuste",
+    "version": "1.0.0"
+  },
+  "build": {
+    "distDir": "../src",
+    "devPath": "../src",
+    "withGlobalTauri": true
+  },
+  "tauri": {
+    "allowlist": {
+      "all": false,
+      "window": { "all": false, "hide": true, "startDragging": true }
+    },
+    "windows": [
+      {
+        "label": "popup",
+        "title": "ReformoJuste",
+        "width": 446,
+        "height": 286,
+        "visible": false,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "center": false,
+        "x": 0,
+        "y": 0,
+        "url": "index.html",
+        "transparent": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self'"
+    },
+    "systemTray": {
+      "iconPath": "icons/tray.png",
+      "iconAsTemplate": true,
+      "menuOnLeftClick": false
+    },
+    "bundle": {
+      "active": true,
+      "targets": "all",
+      "identifier": "com.reformojuste.app",
+      "icon": [
+        "icons/32x32.png",
+        "icons/128x128.png",
+        "icons/128x128@2x.png",
+        "icons/icon.icns",
+        "icons/icon.ico"
+      ],
+      "resources": ["../config.json"],
+      "windows": {
+        "certificateThumbprint": null,
+        "digestAlgorithm": "sha256",
+        "timestampUrl": ""
+      }
+    }
+  }
+}
