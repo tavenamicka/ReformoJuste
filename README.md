@@ -195,6 +195,14 @@ Remplacez `Key::Space` par la touche souhaitée (ex. `Key::KeyJ`, `Key::KeyK`…
 
 ---
 
+## Licence
+
+[MIT](LICENSE) — © 2026 Mickaël Tavenart
+
+La licence couvre le code de ce dépôt. Les composants téléchargés dans `bundle/` par `setup_languagetool.ps1` ne sont pas versionnés ici et restent sous leurs licences propres : **LanguageTool** en LGPL-2.1, le **JRE Eclipse Temurin** en GPLv2 + Classpath Exception. À vérifier avant toute redistribution du dossier portable assemblé.
+
+---
+
 ## Auteur
 
 ### Mickaël Tavenart
