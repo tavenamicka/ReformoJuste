@@ -264,3 +264,41 @@
 **Déployé** : ✅ `ReformoJuste-Portable/reformojuste.exe` (ancien binaire sauvegardé en `.bak-avant-optim`)  
 **Vérifié au lancement** : ✅ aucune JVM démarrée, 354 Mo, arrêt sans processus orphelin  
 **Reste à valider par l'usage** : ressenti du double Ctrl+Space sur plusieurs heures (le symptôme du hook retiré par Windows est intermittent par nature)
+
+---
+
+# Phase 8 — Démarrage automatique avec Windows (2026-08-21)
+
+## Choix technique
+
+Clé `Run` de **`HKEY_CURRENT_USER`**, retenue contre trois alternatives :
+
+| Option | Écartée parce que |
+|---|---|
+| Tâche planifiée | Demande des droits élevés, disproportionné pour une app utilisateur |
+| Raccourci dans `shell:startup` | Impose de générer un `.lnk` (COM) là où une valeur registre suffit |
+| `tauri-plugin-autostart` | Nouvelle dépendance pour ~60 lignes de logique — contraire à la règle « préférer l'existant » |
+
+`HKCU\Run` ne demande **aucun droit administrateur**, suit le profil utilisateur (cohérent avec une app portable) et se retire d'une seule suppression de valeur.
+
+`winreg` est déclaré en dépendance directe mais était **déjà dans l'arbre** (tiré par `reqwest` en 0.50 et `tauri` en 0.52) : zéro paquet supplémentaire à compiler, contre ~60 lignes d'`unsafe` Win32 évitées sur un chemin qui écrit dans le registre.
+
+## Implémentation
+
+- ✅ Nouveau module `src-tauri/src/autostart.rs` — `is_enabled` / `set` / `sync_path`
+- ✅ Entrée de tray **« Démarrer avec Windows »** cochable, séparée de « Quitter » ; la coche reflète l'état réel de la clé à l'ouverture du menu, pas un état supposé
+- ✅ Chemin enregistré **entre guillemets** : un dossier portable dans un chemin à espaces cassait sinon au lancement
+- ✅ `sync_path()` au démarrage : si le dossier portable a été déplacé, l'entrée est réécrite vers le nouvel emplacement au lieu de rester morte
+- ✅ `disable()` idempotent (une valeur déjà absente n'est pas une erreur)
+- ✅ `ai::notify()` extrait de `notify_tray()` : le retour du réglage passe par une bulle système **sans** écraser le tooltip du tray, qui reste l'indicateur permanent de l'IA active
+- ✅ Rien n'est activé par défaut — réglage strictement opt-in
+
+## Tests
+
+`cargo test --release autostart` — 2 tests, 2 passés :
+- `command_line_est_entre_guillemets` — protection des chemins à espaces
+- `activation_desactivation_aller_retour` — aller-retour sur la **vraie** clé Run, activation/désactivation idempotentes, état initial restauré en fin de test (vérifié : aucun résidu dans le registre après exécution)
+
+**Build validé** : ✅ `cargo check --release` 0 erreur / 0 warning, `npm run build` OK  
+**Vérifié au lancement** : ✅ app démarrée (34 Mo), aucune JVM, aucune entrée Run créée sans action de l'utilisateur, arrêt propre  
+**Reste à valider par l'usage** : la bascule elle-même se fait par clic dans le menu du tray — non automatisable en test
