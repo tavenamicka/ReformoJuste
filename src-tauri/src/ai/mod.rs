@@ -187,15 +187,21 @@ pub fn provider_startup_message(kind: ProviderKind) -> String {
     }
 }
 
-/// Notification réutilisable : bulle système + tooltip du tray.
-pub fn notify_tray(app: &tauri::AppHandle, message: &str) {
-    let _ = app.tray_handle().set_tooltip(&format!("ReformoJuste — {message}"));
+/// Bulle de notification système, sans toucher au tooltip du tray.
+pub fn notify(app: &tauri::AppHandle, message: &str) {
     let identifier = app.config().tauri.bundle.identifier.clone();
     let _ = tauri::api::notification::Notification::new(identifier)
         .title("ReformoJuste")
         .body(message)
         .show();
-    eprintln!("[tray] {message}");
+    eprintln!("[notify] {message}");
+}
+
+/// Notification d'état du provider : bulle système **et** tooltip du tray, ce
+/// dernier restant l'indicateur permanent de l'IA active.
+pub fn notify_tray(app: &tauri::AppHandle, message: &str) {
+    let _ = app.tray_handle().set_tooltip(&format!("ReformoJuste — {message}"));
+    notify(app, message);
 }
 
 // ── Factory ───────────────────────────────────────────────────────────────────

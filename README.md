@@ -160,6 +160,24 @@ Copiez `config.json` à côté de l'exe pour la production.
 
 ---
 
+## Démarrage automatique
+
+Clic droit sur l'icône du tray → **Démarrer avec Windows**. La coche reflète l'état courant ; recliquer désactive.
+
+Le réglage écrit une valeur `ReformoJuste` dans `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` — donc **sans droits administrateur**, et rattaché à votre seul profil utilisateur. Rien n'est activé par défaut.
+
+Si vous déplacez le dossier portable, l'entrée est réalignée automatiquement au prochain lancement depuis le nouvel emplacement.
+
+Pour vérifier ou retirer l'entrée à la main :
+
+```powershell
+Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name ReformoJuste
+```
+
+> Le démarrage automatique lance l'exe, pas la JVM LanguageTool : en mode `auto` celle-ci reste dormante tant que Mistral ou Ollama répondent. L'ouverture de session ne paie donc que ~35 Mo.
+
+---
+
 ## Performances
 
 Mesures sur le poste de dev (2026-08-21), texte court d'une phrase :

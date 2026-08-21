@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod ai;
+mod autostart;
 mod clipboard;
 mod config;
 mod cursor;
@@ -14,7 +15,10 @@ use std::os::windows::process::CommandExt;
 
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
-use tauri::{CustomMenuItem, Manager, RunEvent, SystemTray, SystemTrayEvent, SystemTrayMenu};
+use tauri::{
+    CustomMenuItem, Manager, RunEvent, SystemTray, SystemTrayEvent, SystemTrayMenu,
+    SystemTrayMenuItem,
+};
 
 use config::Config;
 
@@ -188,25 +192,56 @@ fn main() {
     let active_provider: Arc<tokio::sync::Mutex<ai::AutoState>> =
         Arc::new(tokio::sync::Mutex::new(ai::AutoState::default()));
 
+    // Case à cocher : reflète l'état réel de la clé Run à l'ouverture.
+    let mut launch = CustomMenuItem::new("autostart", "Démarrer avec Windows");
+    if autostart::is_enabled() {
+        launch = launch.selected();
+    }
     let quit = CustomMenuItem::new("quit", "Quitter ReformoJuste");
+
     let tray = SystemTray::new()
-        .with_menu(SystemTrayMenu::new().add_item(quit))
+        .with_menu(
+            SystemTrayMenu::new()
+                .add_item(launch)
+                .add_native_item(SystemTrayMenuItem::Separator)
+                .add_item(quit),
+        )
         .with_tooltip("ReformoJuste — Double Ctrl+Space");
 
     let app = tauri::Builder::default()
         .system_tray(tray)
         .on_system_tray_event(|app, event| {
-            if let SystemTrayEvent::MenuItemClick { id, .. } = event {
-                if id == "quit" {
+            let SystemTrayEvent::MenuItemClick { id, .. } = event else { return };
+            match id.as_str() {
+                "autostart" => {
+                    let wanted = !autostart::is_enabled();
+                    match autostart::set(wanted) {
+                        Ok(()) => {
+                            let _ = app.tray_handle().get_item("autostart").set_selected(wanted);
+                            ai::notify(app, if wanted {
+                                "Démarrage avec Windows activé"
+                            } else {
+                                "Démarrage avec Windows désactivé"
+                            });
+                        }
+                        Err(e) => ai::notify(app, &format!("Réglage impossible : {e}")),
+                    }
+                }
+                "quit" => {
                     app.state::<LtProcess>().stop();
                     app.exit(0);
                 }
+                _ => {}
             }
         })
         .manage(AppConfig(config.clone()))
         .manage(ai::ActiveProvider(active_provider.clone()))
         .manage(lt)
         .setup(move |app| {
+            // Le dossier portable a pu être déplacé depuis la dernière session :
+            // on réaligne l'entrée Run plutôt que de laisser un chemin mort.
+            autostart::sync_path();
+
             hotkey::start(app.handle(), config.clone());
 
             // Détection automatique du provider (Mistral → Ollama → LT seul).
