@@ -1,0 +1,267 @@
+========================================================
+  TUTORIEL — Créer ReformoJuste en application portable
+========================================================
+
+Ce tutoriel explique comment compiler ReformoJuste une seule fois sur votre
+PC de développement, puis l'utiliser sur n'importe quel autre PC ou clé USB
+sans rien installer (ni Python, ni Java, ni aucune dépendance).
+
+
+────────────────────────────────────────────────────────
+  PARTIE 1 — CE QU'IL FAUT SUR LE PC DE DÉVELOPPEMENT
+────────────────────────────────────────────────────────
+
+Avant de commencer, vérifiez que vous avez installé sur votre PC :
+
+  • Rust + Cargo
+      https://rustup.rs
+      → dans PowerShell : rustup --version
+
+  • Node.js (v18 ou plus récent)
+      https://nodejs.org
+      → dans PowerShell : node --version
+
+  • Tauri CLI (via npm)
+      → dans PowerShell : npm install --global @tauri-apps/cli
+
+  • Ollama (pour les reformulations IA)
+      https://ollama.com
+      → dans PowerShell : ollama --version
+      → télécharger le modèle : ollama pull gemma4:e4b
+
+  • PowerShell 5.1 ou supérieur (déjà présent sur Windows 10/11)
+
+  • Une connexion Internet (pour télécharger LanguageTool et le JRE,
+    une seule fois)
+
+
+────────────────────────────────────────────────────────
+  PARTIE 2 — PRÉPARER LE PROJET (UNE SEULE FOIS)
+────────────────────────────────────────────────────────
+
+Étape 1 — Ouvrir un terminal PowerShell dans le dossier du projet
+─────────────────────────────────────────────────────────────────
+  Naviguez jusqu'au dossier du projet, par exemple :
+
+    cd D:\Projets_IA\ReformoJuste-Correcteur_Portable
+
+  Ou faites un clic droit sur le dossier → "Ouvrir dans le Terminal".
+
+
+Étape 2 — Installer les dépendances Node.js
+────────────────────────────────────────────
+  Dans PowerShell :
+
+    npm install
+
+  Cela crée le dossier node_modules/ avec les outils de build Tauri.
+
+
+Étape 3 — Télécharger LanguageTool et le JRE Java
+──────────────────────────────────────────────────
+  Exécutez le script de configuration :
+
+    .\setup_languagetool.ps1
+
+  Ce script télécharge automatiquement :
+    • LanguageTool 6.5 (correcteur orthographique/grammatical)
+      → placé dans bundle\languagetool\
+    • JRE Eclipse Temurin 21 (Java, ~50 Mo compressé)
+      → placé dans bundle\jre\
+
+  Le téléchargement peut prendre quelques minutes selon votre connexion.
+  Une fois terminé, la structure est :
+
+    bundle\
+    ├── languagetool\
+    │   ├── languagetool-server.jar   ← serveur de correction
+    │   └── ... (fichiers de langue)
+    └── jre\
+        └── bin\
+            └── java.exe              ← Java embarqué, pas besoin de l'installer
+
+
+Étape 4 — Compiler l'application
+─────────────────────────────────
+  Dans PowerShell :
+
+    npm run build
+
+  La compilation prend 2 à 5 minutes la première fois.
+  En cas de succès, vous verrez : "Finished release profile"
+
+  L'exécutable se trouve dans :
+    src-tauri\target\release\reformojuste.exe
+
+
+Étape 5 — Assembler le dossier portable
+────────────────────────────────────────
+  Exécutez le script de distribution :
+
+    .\distribute.ps1
+
+  Ce script crée automatiquement le dossier :
+
+    ReformoJuste-Portable\
+    ├── reformojuste.exe      ← l'application
+    ├── config.json           ← configuration (modifiable)
+    └── bundle\
+        ├── languagetool\     ← correcteur embarqué
+        └── jre\              ← Java embarqué
+
+  C'est ce dossier que vous allez copier sur clé USB ou partager.
+
+
+────────────────────────────────────────────────────────
+  PARTIE 3 — UTILISER L'APPLICATION PORTABLE
+────────────────────────────────────────────────────────
+
+Option A — Sur une clé USB
+──────────────────────────
+  1. Copiez le dossier ReformoJuste-Portable\ à la racine de votre clé USB.
+     Exemple : E:\ReformoJuste-Portable\
+
+  2. Sur le PC cible (sans rien installer), ouvrez la clé USB et
+     double-cliquez sur reformojuste.exe
+
+  3. L'application démarre et apparaît dans la barre des tâches (system tray,
+     en bas à droite de l'écran).
+
+  ATTENTION : Ollama doit être installé et actif sur le PC cible pour que
+  les reformulations IA fonctionnent. Seul Ollama nécessite une installation.
+  LanguageTool (correction orthographique) fonctionne entièrement depuis la clé.
+
+
+Option B — Dans un dossier sur un PC sans droits admin
+────────────────────────────────────────────────────────
+  1. Copiez le dossier ReformoJuste-Portable\ où vous voulez :
+       C:\Users\VotreNom\Documents\ReformoJuste-Portable\
+       ou
+       D:\Outils\ReformoJuste-Portable\
+
+  2. Double-cliquez sur reformojuste.exe — aucune installation requise.
+
+  3. Pour démarrer automatiquement avec Windows, créez un raccourci vers
+     reformojuste.exe et placez-le dans :
+       C:\Users\VotreNom\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\
+
+
+Option C — Distribuer en ZIP
+─────────────────────────────
+  1. Compressez le dossier ReformoJuste-Portable\ en ZIP :
+       Clic droit → Compresser dans un fichier ZIP
+
+  2. Partagez le ZIP (clé USB, OneDrive, e-mail, réseau local...).
+
+  3. Le destinataire n'a qu'à dézipper et double-cliquer sur reformojuste.exe.
+
+  Taille estimée du ZIP : 250 à 350 Mo.
+
+
+────────────────────────────────────────────────────────
+  PARTIE 4 — UTILISER REFORMOJUSTE
+────────────────────────────────────────────────────────
+
+  1. Lancez reformojuste.exe — une icône apparaît dans le system tray.
+
+  2. Sélectionnez du texte dans n'importe quelle application Windows
+     (Word, navigateur, e-mail, Notepad...).
+
+  3. Appuyez deux fois rapidement sur Ctrl+Espace.
+     → Une popup apparaît avec la correction et les reformulations.
+
+  4. Cliquez sur "Copier" pour copier le résultat dans le presse-papier,
+     ou "Remplacer" pour coller automatiquement dans l'application source.
+
+  5. Appuyez sur Échap ou cliquez ailleurs pour fermer la popup.
+
+  6. Pour quitter : clic droit sur l'icône dans le system tray → Quitter.
+
+
+────────────────────────────────────────────────────────
+  PARTIE 5 — MODIFIER LA CONFIGURATION
+────────────────────────────────────────────────────────
+
+  Ouvrez config.json avec un éditeur de texte (Notepad, VS Code...) :
+
+  {
+    "ai_provider": "hybrid",        ← "hybrid" | "local" | "languagetool"
+
+    "local": {
+      "base_url": "http://localhost:11434",
+      "model": "gemma4:e4b",        ← changez le modèle Ollama ici
+      "provider": "ollama"
+    },
+
+    "languagetool": {
+      "base_url": "http://localhost:8082",
+      "language": "fr"              ← "fr" | "en-US" | "de" | "es" | etc.
+    },
+
+    "hotkey": {
+      "double_press_ms": 400        ← délai max entre les 2 Ctrl+Espace (ms)
+    },
+
+    "popup": {
+      "width": 420,                 ← largeur de la popup (pixels)
+      "height": 520,                ← hauteur de la popup (pixels)
+      "offset_x": 20,
+      "offset_y": 20
+    }
+  }
+
+  Valeurs pour "ai_provider" :
+    • "hybrid"       → correction LT + reformulations Ollama (recommandé)
+    • "local"        → uniquement Ollama (reformulations sans correction LT)
+    • "languagetool" → uniquement LanguageTool (correction sans reformulations)
+
+
+────────────────────────────────────────────────────────
+  PARTIE 6 — EN CAS DE PROBLÈME
+────────────────────────────────────────────────────────
+
+  La popup n'apparaît pas après Ctrl+Espace
+  → Vérifiez que reformojuste.exe est bien lancé (icône dans le system tray).
+  → Essayez de sélectionner le texte avant d'appuyer sur Ctrl+Espace.
+
+  "Erreur de connexion" dans la popup
+  → LanguageTool met 5 à 10 secondes à démarrer au premier lancement.
+     Réessayez après quelques secondes.
+
+  Les reformulations ne s'affichent pas
+  → Ollama doit être installé et en cours d'exécution sur le PC.
+     Dans PowerShell : ollama serve
+     Puis : ollama list  (vérifiez que gemma4:e4b est présent)
+
+  L'application refuse de démarrer
+  → Vérifiez que bundle\jre\bin\java.exe et
+     bundle\languagetool\languagetool-server.jar existent bien.
+  → Relancez .\setup_languagetool.ps1 si ces fichiers sont manquants.
+
+  Changer de langue de correction
+  → Ouvrez config.json et modifiez "language" dans la section "languagetool".
+     Codes : "fr" (français), "en-US" (anglais), "de" (allemand),
+             "es" (espagnol), "it" (italien), "pt" (portugais)...
+
+
+────────────────────────────────────────────────────────
+  RÉSUMÉ DES COMMANDES (PC DE DÉVELOPPEMENT)
+────────────────────────────────────────────────────────
+
+  # 1. Préparer (une seule fois)
+  npm install
+  .\setup_languagetool.ps1
+
+  # 2. Compiler
+  npm run build
+
+  # 3. Créer le dossier portable
+  .\distribute.ps1
+
+  # → Distribuer : ReformoJuste-Portable\  (copier ou zipper)
+
+
+========================================================
+  ReformoJuste — Application portable de correction IA
+  Aucune installation requise sur le PC cible.
+========================================================
