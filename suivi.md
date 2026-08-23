@@ -302,3 +302,97 @@ Clé `Run` de **`HKEY_CURRENT_USER`**, retenue contre trois alternatives :
 **Build validé** : ✅ `cargo check --release` 0 erreur / 0 warning, `npm run build` OK  
 **Vérifié au lancement** : ✅ app démarrée (34 Mo), aucune JVM, aucune entrée Run créée sans action de l'utilisateur, arrêt propre  
 **Reste à valider par l'usage** : la bascule elle-même se fait par clic dans le menu du tray — non automatisable en test
+
+---
+
+# Phase 9 — Forme d'adresse préservée dans les corrections (2026-08-23)
+
+## Symptôme
+
+Les corrections basculaient en **vouvoiement alors que le texte d'origine tutoyait**.
+Non systématique : déclenché par le degré de familiarité de l'entrée (élisions
+« t'inquiète », « t'es dispo », abréviations « dispo », « stp »).
+
+```
+ORIGINAL : T'inquiete pas, je m'en occupe. Tu me redis quand t'es dispo.
+AVANT    : Ne vous inquiétez pas, je m'en occupe. Vous me redites quand vous êtes disponible.
+APRÈS    : T'inquiète pas, je m'en occupe. Tu me redis quand tu es dispo.
+```
+
+## Diagnostic — LanguageTool était hors de cause
+
+LanguageTool était le suspect initial. Écarté en interrogeant le serveur bundlé
+directement (`bundle/jre/bin/java.exe` + `languagetool-server.jar`, port de test
+dédié) plutôt qu'en raisonnant sur son comportement supposé :
+
+| Entrée | Règle déclenchée | Remplacement proposé |
+|---|---|---|
+| `tu fait` | `ACCORD_R_PERS_VERBE` | `fais` — jamais `faites` |
+| `tu a` | `ACCORD_R_PERS_VERBE` | `as` — jamais `avez` |
+| `Dis moi` | `IMP_PRON` | `Dis-moi` |
+
+LanguageTool corrige **par offsets** : il remplace des segments désignés par
+position, il n'a structurellement aucun moyen de changer une forme d'adresse, et
+son jeu de règles français ne contient aucune catégorie de registre.
+
+**Cause réelle** : `build_prompt()` dans `src-tauri/src/ai/mod.rs`, partagé par
+`mistral.rs` et `local.rs`. Il demandait un texte « corrigé orthographiquement et
+grammaticalement, sans changer le sens » — rien n'y protégeait la forme d'adresse,
+et « sans changer le sens » ne la couvre pas : pour un modèle, tu/vous ne change
+pas le sens. Il interprétait donc « corriger » comme « normaliser vers le français
+standard ».
+
+⚠️ À retenir : en mode `auto` avec une clé Mistral valide, la correction affichée
+vient **toujours** de Mistral — LanguageTool n'est atteint que si Mistral *et*
+Ollama tombent. L'onglet « Correction » n'est pas un onglet LanguageTool.
+
+## Implémentation
+
+- ✅ Règle de forme d'adresse ajoutée à `build_prompt` — donc appliquée aux deux
+  providers IA d'un seul point, sans toucher `mistral.rs` ni `local.rs`
+- ✅ Écrite en **deux passes** : la v1 corrigeait bien `correction` mais laissait
+  `professional` et `formal` dériver vers le vouvoiement. La v2 nomme
+  explicitement ce mode d'échec — les 5 styles portent sur le vocabulaire et la
+  syntaxe, jamais sur la forme d'adresse — et donne un exemple de soutenu qui
+  tutoie (« Aurais-tu l'obligeance de… »)
+- ✅ Couvre les **deux sens** : un texte vouvoyé ne doit pas devenir tutoyé dans
+  `simple` / `creative`
+- ✅ 8 lignes ajoutées, aucun autre fichier modifié
+
+## Résultats mesurés
+
+4 phrases (3 en tutoiement + 1 contrôle en vouvoiement) × 2 providers, prompt
+**extrait du source compilé** pour que le test porte sur le prompt réel :
+
+| Provider | Écarts après règle v1 | Écarts après règle v2 |
+|---|---|---|
+| Mistral (`mistral-small-latest`) | 4 | **1** |
+| Ollama (`gemma3:4b`) | 7 | **6** |
+
+- Champ `correction` — l'objet du bug : **8/8 juste**, sur les deux providers et
+  sur les deux exécutions successives
+- Mistral : le seul écart restant est un `simple` qui tutoie sur entrée vouvoyée
+- Ollama : les 6 écarts restants sont **tous** `professional` / `formal` sur
+  entrée tutoyée. `gemma3:4b` ne tient pas la contrainte contre son a priori
+  « professionnel ⇒ vouvoiement » — limite de taille de modèle (4B), pas un défaut
+  de prompt, le même prompt passe sur `mistral-small`. Sans impact hors repli.
+
+⚠️ Réserves de méthode : le détecteur de registre utilisé pour compter les écarts
+rate les apostrophes typographiques (`t'est` avec ’ U+2019), le compte Mistral est
+donc peut-être 2 et non 1 ; et 4 phrases × 1 run à `temperature: 0.7`, c'est un
+échantillon indicatif, pas une garantie statistique.
+
+## Non retenu
+
+`temperature: 0.7` (`mistral.rs`) n'a **pas** été baissée : elle fiabiliserait le
+dernier écart mais aplatirait aussi la reformulation `creative`. Arbitrage laissé
+ouvert.
+
+**Build validé** : ✅ `cargo check` 0 erreur / 0 warning, `tauri build` release en
+1 min 07, 0 warning
+**Portable régénéré** : ✅ `distribute.ps1` — exe identique au build release
+(`cmp`), présence de la nouvelle règle vérifiée par recherche de chaîne **dans le
+binaire** (les deux versions font exactement la même taille : ne pas se fier à la
+taille pour vérifier qu'un déploiement a pris, seulement à la date)
+**Reste à valider par l'usage** : test réel au double Ctrl+Space — les 8 essais
+ci-dessus passent par les API directement, pas par la popup Tauri
