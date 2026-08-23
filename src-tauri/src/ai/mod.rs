@@ -478,6 +478,14 @@ Analyse ce texte et retourne UNIQUEMENT un objet JSON valide avec exactement ces
   "creative":     "réécriture en français, créative et originale"
 }}
 
+RÈGLE ABSOLUE — forme d'adresse : conserve exactement celle du texte d'origine.
+S'il tutoie, les 6 valeurs tutoient. S'il vouvoie, les 6 vouvoient. Ne convertis
+JAMAIS « tu » en « vous » ni l'inverse.
+Les 5 styles portent sur le vocabulaire et la syntaxe, jamais sur la forme
+d'adresse : "professional" et "formal" restent au tutoiement si l'original tutoie
+(ex. « Aurais-tu l'obligeance de… ») ; "simple" et "creative" restent au
+vouvoiement si l'original vouvoie.
+
 Texte à analyser : {text}
 
 IMPORTANT : Réponds UNIQUEMENT avec le JSON en français, aucun texte avant ou après."#,
