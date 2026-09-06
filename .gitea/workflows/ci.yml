@@ -25,6 +25,8 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             libwebkit2gtk-4.0-dev libgtk-3-dev libayatana-appindicator3-dev \
             librsvg2-dev libsoup2.4-dev build-essential libssl-dev
+      - name: Config locale factice (config.json est gitignore, requis par tauri-build au build)
+        run: cp config.example.json config.json
       - name: Installe Rust (absent de l'image de base)
         run: |
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
