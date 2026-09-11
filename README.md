@@ -1,5 +1,6 @@
 # ReformoJuste
 
+[![CI](https://github.com/tavenamicka/ReformoJuste/actions/workflows/ci.yml/badge.svg)](https://github.com/tavenamicka/ReformoJuste/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 Popup Windows déclenchée par **double Ctrl+Space** : corrige et reformule le texte sélectionné via IA.
