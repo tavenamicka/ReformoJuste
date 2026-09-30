@@ -28,7 +28,7 @@ const AI_TIMEOUT:    Duration = Duration::from_secs(60); // Ollama à froid ≈ 
 // Ollama sur CPU (portable sans GPU) : chargement + ~200 tokens dépassent 60 s.
 const LOCAL_TIMEOUT: Duration = Duration::from_secs(180);
 const LT_TIMEOUT:    Duration = Duration::from_secs(20);
-const PROBE_TIMEOUT: Duration = Duration::from_secs(3);
+const PROBE_TIMEOUT: Duration = Duration::from_secs(5); // portable sur Wi-Fi lent : 3 s coupait à tort
 
 static AI_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
     reqwest::Client::builder().timeout(AI_TIMEOUT).build().unwrap_or_default()
@@ -195,6 +195,47 @@ async fn ping_ollama(config: &Config) -> bool {
     match probe_client().get(format!("{base}/api/tags")).send().await {
         Ok(r) => r.status().is_success(),
         Err(_) => false,
+    }
+}
+
+fn net_err(e: &reqwest::Error) -> &'static str {
+    if e.is_timeout()      { "délai dépassé (réseau lent ou bloqué)" }
+    else if e.is_connect() { "connexion impossible (Internet, proxy ou pare-feu ?)" }
+    else                   { "erreur réseau" }
+}
+
+/// Sonde un service cloud (`GET models`) et explique en une phrase pourquoi il
+/// est inutilisable, ou `None` s'il répond. Affiché dans la popup au repli sur
+/// LanguageTool : sans ça l'utilisateur ne voit qu'un message générique.
+async fn probe_reason(name: &str, key: &str, url: &str) -> Option<String> {
+    if key.is_empty() {
+        return Some(format!("{name} : clé absente de config.json"));
+    }
+    match probe_client().get(url).bearer_auth(key).send().await {
+        Ok(r) if r.status().is_success() => None,
+        Ok(r) if matches!(r.status().as_u16(), 400 | 401 | 403) =>
+            Some(format!("{name} : clé refusée (HTTP {})", r.status().as_u16())),
+        Ok(r)  => Some(format!("{name} : HTTP {}", r.status().as_u16())),
+        Err(e) => Some(format!("{name} : {}", net_err(&e))),
+    }
+}
+
+/// Raisons pour lesquelles ni Mistral, ni Gemini, ni Ollama ne sont utilisables.
+pub async fn diagnose(config: &Config) -> String {
+    let mut reasons = Vec::new();
+    if !config.mistral_api_key.is_empty() {
+        reasons.extend(probe_reason("Mistral", &config.mistral_api_key,
+            "https://api.mistral.ai/v1/models").await);
+    }
+    reasons.extend(probe_reason("Gemini", &config.gemini_api_key,
+        "https://generativelanguage.googleapis.com/v1beta/openai/models").await);
+    if !ping_ollama(config).await {
+        reasons.push("Ollama : non détecté".to_string());
+    }
+    if reasons.is_empty() {
+        "les services répondent mais ont échoué à la requête".to_string()
+    } else {
+        reasons.join(" · ")
     }
 }
 
@@ -524,8 +565,12 @@ async fn run_lt_only(
     let res = languagetool::LanguageToolProvider::new(lt_cfg).process(text).await?;
 
     emit(window, gen, "ai-partial", PartialResult { correction: res.correction.clone() });
-    emit(window, gen, "ai-result",
-        AiResult::correction_only(res.correction, "Reformulations indisponibles (mode LanguageTool seul)"));
+    let note = if config.ai_provider == "auto" {
+        format!("Reformulations indisponibles — {}", diagnose(config).await)
+    } else {
+        "Reformulations indisponibles (mode LanguageTool seul)".to_string()
+    };
+    emit(window, gen, "ai-result", AiResult::correction_only(res.correction, &note));
     Ok(())
 }
 
