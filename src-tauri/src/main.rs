@@ -244,7 +244,7 @@ fn main() {
 
             hotkey::start(app.handle(), config.clone());
 
-            // Détection automatique du provider (Mistral → Ollama → LT seul).
+            // Détection automatique du provider (Mistral → Gemini → Ollama → LT seul).
             if config.ai_provider == "auto" {
                 let cfg = config.clone();
                 let ap = active_provider.clone();
@@ -254,8 +254,7 @@ fn main() {
                     {
                         let mut s = ap.lock().await;
                         s.kind = Some(kind);
-                        s.downgraded_at =
-                            (kind != ai::ProviderKind::Mistral).then(std::time::Instant::now);
+                        s.downgraded_at = ai::downgraded_at(&cfg, kind);
                     }
                     eprintln!("[AI] provider auto-détecté : {kind:?}");
                     ai::notify_tray(&handle, &ai::provider_startup_message(kind));

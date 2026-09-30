@@ -24,7 +24,7 @@ pub struct LocalProvider {
 impl LocalProvider {
     pub fn new(config: LocalConfig) -> Self {
         // Client partagé (pool de connexions + timeout) — cf. ai/mod.rs.
-        Self { config, client: super::ai_client() }
+        Self { config, client: super::local_client() }
     }
 
     /// Précharge le modèle en mémoire sans rien générer (prompt vide).

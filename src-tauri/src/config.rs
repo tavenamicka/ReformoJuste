@@ -11,6 +11,11 @@ pub struct Config {
     pub mistral_api_key: String,
     #[serde(default = "default_mistral_model")]
     pub mistral_model:   String,
+    /// Clé API Google Gemini. Vide = Gemini désactivé (détection auto le saute).
+    #[serde(default)]
+    pub gemini_api_key: String,
+    #[serde(default = "default_gemini_model")]
+    pub gemini_model:   String,
     pub local:        Option<LocalConfig>,
     pub languagetool: Option<LanguageToolConfig>,
     pub hotkey:       HotkeyConfig,
@@ -19,6 +24,10 @@ pub struct Config {
 
 fn default_mistral_model() -> String {
     "mistral-small-latest".to_string()
+}
+
+fn default_gemini_model() -> String {
+    "gemini-2.5-flash".to_string()
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -83,6 +92,7 @@ pub fn load() -> Result<Config> {
     let path = config_path();
     let content = fs::read_to_string(&path)
         .map_err(|e| anyhow::anyhow!("Cannot read {}: {}", path.display(), e))?;
-    let cfg: Config = serde_json::from_str(&content)?;
+    // Le Bloc-notes / PowerShell 5.1 ajoutent un BOM UTF-8 que serde_json refuse.
+    let cfg: Config = serde_json::from_str(content.trim_start_matches('\u{feff}'))?;
     Ok(cfg)
 }

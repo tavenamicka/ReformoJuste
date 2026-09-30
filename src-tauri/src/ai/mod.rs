@@ -9,6 +9,7 @@ use tokio::sync::Mutex;
 
 use crate::config::Config;
 
+pub mod gemini;
 pub mod hybrid;
 pub mod languagetool;
 pub mod local;
@@ -24,11 +25,16 @@ pub mod mistral;
 // requête bloquée laisse la popup tourner indéfiniment.
 
 const AI_TIMEOUT:    Duration = Duration::from_secs(60); // Ollama à froid ≈ 20 s
+// Ollama sur CPU (portable sans GPU) : chargement + ~200 tokens dépassent 60 s.
+const LOCAL_TIMEOUT: Duration = Duration::from_secs(180);
 const LT_TIMEOUT:    Duration = Duration::from_secs(20);
 const PROBE_TIMEOUT: Duration = Duration::from_secs(3);
 
 static AI_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
     reqwest::Client::builder().timeout(AI_TIMEOUT).build().unwrap_or_default()
+});
+static LOCAL_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
+    reqwest::Client::builder().timeout(LOCAL_TIMEOUT).build().unwrap_or_default()
 });
 static LT_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
     reqwest::Client::builder().timeout(LT_TIMEOUT).build().unwrap_or_default()
@@ -38,6 +44,7 @@ static PROBE_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
 });
 
 pub fn ai_client()    -> reqwest::Client { AI_CLIENT.clone() }
+pub fn local_client() -> reqwest::Client { LOCAL_CLIENT.clone() }
 pub fn lt_client()    -> reqwest::Client { LT_CLIENT.clone() }
 pub fn probe_client() -> reqwest::Client { PROBE_CLIENT.clone() }
 
@@ -124,8 +131,20 @@ pub trait AiProvider: Send + Sync {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProviderKind {
     Mistral,
+    Gemini,
     Ollama,
     LtOnly,
+}
+
+/// Instant de rétrogradation à mémoriser pour `kind` : `None` si c'est déjà le
+/// premier maillon *configuré* de la chaîne (rien à retenter plus haut).
+pub fn downgraded_at(config: &Config, kind: ProviderKind) -> Option<Instant> {
+    let is_top = match kind {
+        ProviderKind::Mistral => true,
+        ProviderKind::Gemini  => config.mistral_api_key.is_empty(),
+        _                     => false,
+    };
+    (!is_top).then(Instant::now)
 }
 
 /// Délai avant de retenter le haut de la chaîne après une rétrogradation.
@@ -143,7 +162,12 @@ pub struct AutoState {
 /// État Tauri : provider courant en mode auto, modifiable à chaud (fallback runtime).
 pub struct ActiveProvider(pub Arc<Mutex<AutoState>>);
 
-/// Chaîne de fallback : Mistral API → Ollama local → LanguageTool seul.
+fn gemini_provider(config: &Config) -> gemini::GeminiProvider {
+    gemini::GeminiProvider::new(config.gemini_api_key.clone(), config.gemini_model.clone())
+}
+
+/// Chaîne de fallback : Mistral → Gemini → Ollama local → LanguageTool seul.
+/// Un maillon dont la clé est vide est simplement sauté.
 pub async fn auto_detect_provider(config: &Config) -> ProviderKind {
     if !config.mistral_api_key.is_empty() {
         let m = mistral::MistralProvider::new(
@@ -153,6 +177,9 @@ pub async fn auto_detect_provider(config: &Config) -> ProviderKind {
         if m.ping().await {
             return ProviderKind::Mistral;
         }
+    }
+    if gemini_provider(config).ping().await {
+        return ProviderKind::Gemini;
     }
     if ping_ollama(config).await {
         return ProviderKind::Ollama;
@@ -174,7 +201,8 @@ async fn ping_ollama(config: &Config) -> bool {
 pub fn provider_label(kind: ProviderKind) -> &'static str {
     match kind {
         ProviderKind::Mistral => "Mistral API",
-        ProviderKind::Ollama  => "Ollama (local)",
+        ProviderKind::Gemini  => "Google Gemini",
+        ProviderKind::Ollama  =>"Ollama (local)",
         ProviderKind::LtOnly  => "LanguageTool seul",
     }
 }
@@ -222,6 +250,7 @@ pub async fn process(config: &Config, text: &str) -> Result<AiResult> {
                 config.mistral_model.clone(),
             ))
         }
+        "gemini" => Box::new(gemini_provider(config)),
         "hybrid" => {
             let lt_cfg = config.languagetool.clone().ok_or_else(|| anyhow::anyhow!("languagetool config missing for hybrid mode"))?;
             let ai_cfg = config.local.clone().ok_or_else(|| anyhow::anyhow!("local config missing for hybrid mode"))?;
@@ -235,6 +264,7 @@ pub async fn process(config: &Config, text: &str) -> Result<AiResult> {
                     config.mistral_api_key.clone(),
                     config.mistral_model.clone(),
                 )),
+                ProviderKind::Gemini => Box::new(gemini_provider(config)),
                 ProviderKind::Ollama => {
                     let c = config.local.clone().ok_or_else(|| anyhow::anyhow!("local config missing"))?;
                     Box::new(local::LocalProvider::new(c))
@@ -343,7 +373,7 @@ async fn resolve_provider(config: &Config, app: &tauri::AppHandle) -> ProviderKi
         (Some(previous), Some(since)) if since.elapsed() >= RECOVERY_AFTER => {
             let fresh = auto_detect_provider(config).await;
             s.kind = Some(fresh);
-            s.downgraded_at = (fresh != ProviderKind::Mistral).then(Instant::now);
+            s.downgraded_at = downgraded_at(config, fresh);
             if fresh != previous {
                 notify_tray(app, &format!("Reprise → {}", provider_label(fresh)));
             }
@@ -356,7 +386,7 @@ async fn resolve_provider(config: &Config, app: &tauri::AppHandle) -> ProviderKi
         (None, _) => {
             let fresh = auto_detect_provider(config).await;
             s.kind = Some(fresh);
-            s.downgraded_at = (fresh != ProviderKind::Mistral).then(Instant::now);
+            s.downgraded_at = downgraded_at(config, fresh);
             fresh
         }
     }
@@ -394,15 +424,19 @@ async fn process_auto(
                 }
                 Err(e) => {
                     eprintln!("[Mistral] indisponible : {e}");
-                    if ping_ollama(config).await {
-                        downgrade(&app, ProviderKind::Ollama,
-                            "Mistral indisponible → bascule sur Ollama").await;
-                        run_ollama(config, text, window, gen).await
-                    } else {
-                        downgrade(&app, ProviderKind::LtOnly,
-                            "Mistral indisponible → bascule sur LanguageTool").await;
-                        run_lt_only(config, text, window, gen).await
-                    }
+                    fallback_after(&app, config, text, window, gen, "Mistral", true).await
+                }
+            }
+        }
+        ProviderKind::Gemini => {
+            match gemini_provider(config).process(text).await {
+                Ok(result) => {
+                    emit(window, gen, "ai-result", result);
+                    Ok(())
+                }
+                Err(e) => {
+                    eprintln!("[Gemini] indisponible : {e}");
+                    fallback_after(&app, config, text, window, gen, "Gemini", false).await
                 }
             }
         }
@@ -418,6 +452,39 @@ async fn process_auto(
             }
         }
         ProviderKind::LtOnly => run_lt_only(config, text, window, gen).await,
+    }
+}
+
+/// Suite de la chaîne après l'échec de `failed` : Gemini (si `try_gemini` et
+/// clé présente) → Ollama → LanguageTool seul.
+async fn fallback_after(
+    app:        &tauri::AppHandle,
+    config:     &Config,
+    text:       &str,
+    window:     &tauri::Window,
+    gen:        u64,
+    failed:     &str,
+    try_gemini: bool,
+) -> Result<()> {
+    if try_gemini && !config.gemini_api_key.is_empty() {
+        match gemini_provider(config).process(text).await {
+            Ok(result) => {
+                downgrade(app, ProviderKind::Gemini,
+                    &format!("{failed} indisponible → bascule sur Gemini")).await;
+                emit(window, gen, "ai-result", result);
+                return Ok(());
+            }
+            Err(e) => eprintln!("[Gemini] indisponible : {e}"),
+        }
+    }
+    if ping_ollama(config).await {
+        downgrade(app, ProviderKind::Ollama,
+            &format!("{failed} indisponible → bascule sur Ollama")).await;
+        run_ollama(config, text, window, gen).await
+    } else {
+        downgrade(app, ProviderKind::LtOnly,
+            &format!("{failed} indisponible → bascule sur LanguageTool")).await;
+        run_lt_only(config, text, window, gen).await
     }
 }
 

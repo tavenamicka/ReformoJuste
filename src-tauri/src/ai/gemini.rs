@@ -3,47 +3,43 @@ use async_trait::async_trait;
 use reqwest::{Client, StatusCode};
 use serde_json::json;
 
+use super::mistral::SYSTEM_PROMPT;
 use super::{build_prompt, parse_response, AiProvider, AiResult};
 
-const API_URL: &str = "https://api.mistral.ai/v1/chat/completions";
-const MODELS_URL: &str = "https://api.mistral.ai/v1/models";
+// Endpoint de compatibilité OpenAI de Google : même format que Mistral.
+const API_URL:    &str = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
+const MODELS_URL: &str = "https://generativelanguage.googleapis.com/v1beta/openai/models";
 
-pub(super) const SYSTEM_PROMPT: &str = "Tu es un correcteur orthographique et grammatical en FRANÇAIS. \
-Tu corriges les fautes d'orthographe, de grammaire et de conjugaison sans changer le sens du texte, \
-puis tu proposes cinq reformulations (simple, professionnelle, soutenue, courte et créative). \
-Tu réponds toujours en français et UNIQUEMENT avec un objet JSON valide.";
-
-/// Provider basé sur l'API REST de Mistral (cloud).
-pub struct MistralProvider {
+/// Provider basé sur l'API Google Gemini (palier gratuit avec quotas).
+pub struct GeminiProvider {
     api_key: String,
     model:   String,
     client:  Client,
 }
 
-impl MistralProvider {
+impl GeminiProvider {
     pub fn new(api_key: String, model: String) -> Self {
-        // Client partagé (pool de connexions + timeout) — cf. ai/mod.rs.
         Self { api_key, model, client: super::ai_client() }
     }
 
-    /// Ping léger pour la détection automatique : vérifie clé + disponibilité.
-    /// `false` si la clé est vide, si le réseau échoue ou si l'API rejette la clé.
+    /// Ping léger pour la détection automatique : `false` si clé vide,
+    /// réseau en échec ou clé rejetée.
     pub async fn ping(&self) -> bool {
         if self.api_key.is_empty() {
             return false;
         }
         match super::probe_client().get(MODELS_URL).bearer_auth(&self.api_key).send().await {
             Ok(resp) => resp.status().is_success(),
-            Err(_) => false,
+            Err(_)   => false,
         }
     }
 }
 
 #[async_trait]
-impl AiProvider for MistralProvider {
+impl AiProvider for GeminiProvider {
     async fn process(&self, text: &str) -> Result<AiResult> {
         if self.api_key.is_empty() {
-            anyhow::bail!("Clé API Mistral absente (mistral_api_key vide)");
+            anyhow::bail!("Clé API Gemini absente (gemini_api_key vide)");
         }
 
         let body = json!({
@@ -65,15 +61,16 @@ impl AiProvider for MistralProvider {
 
         let status = resp.status();
         match status {
-            StatusCode::UNAUTHORIZED => {
-                anyhow::bail!("Mistral : clé API invalide ou révoquée (401)")
+            StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => {
+                anyhow::bail!("Gemini : clé API invalide ou non autorisée ({})", status.as_u16())
             }
             StatusCode::TOO_MANY_REQUESTS => {
-                anyhow::bail!("Mistral : quota dépassé / trop de requêtes (429)")
+                anyhow::bail!("Gemini : quota gratuit dépassé (429)")
             }
             s if !s.is_success() => {
+                // Gemini renvoie 400 (et non 401) pour une clé invalide.
                 let detail = resp.text().await.unwrap_or_default();
-                anyhow::bail!("Mistral : erreur HTTP {} — {}", s.as_u16(), detail)
+                anyhow::bail!("Gemini : erreur HTTP {} — {}", s.as_u16(), detail)
             }
             _ => {}
         }
@@ -81,7 +78,7 @@ impl AiProvider for MistralProvider {
         let data: serde_json::Value = resp.json().await?;
         let content = data["choices"][0]["message"]["content"]
             .as_str()
-            .ok_or_else(|| anyhow::anyhow!("Réponse Mistral vide ou malformée : {:?}", data))?;
+            .ok_or_else(|| anyhow::anyhow!("Réponse Gemini vide ou malformée : {:?}", data))?;
 
         parse_response(content)
     }
