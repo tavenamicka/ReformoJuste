@@ -114,6 +114,19 @@ pub trait AiProvider: Send + Sync {
     async fn process(&self, text: &str) -> Result<AiResult>;
 }
 
+/// Une requête de complétion. Regroupée dans une structure plutôt qu'en
+/// paramètres positionnels : les deux passes ne diffèrent que par ces valeurs.
+pub struct Completion<'a> {
+    pub system: &'a str,
+    pub user:   &'a str,
+    /// 0 pour la correction (déterministe), 0.7 pour les reformulations.
+    pub temperature: f32,
+    /// Plafond de génération. Honoré par les providers **locaux** uniquement :
+    /// les services cloud n'ont pas besoin d'être bornés et un plafond y
+    /// tronquerait des réponses légitimes.
+    pub max_tokens: u32,
+}
+
 /// Service de complétion brut (Mistral, Gemini, Ollama, LM Studio).
 ///
 /// Sépare le transport du contenu : les prompts et l'enchaînement des deux
@@ -122,9 +135,8 @@ pub trait AiProvider: Send + Sync {
 /// [`two_pass`].
 #[async_trait]
 pub trait LlmProvider: Send + Sync {
-    /// Un appel, sortie JSON imposée. `temperature` est fixée par l'appelant :
-    /// 0 pour la correction, 0.7 pour les reformulations.
-    async fn complete(&self, system: &str, user: &str, temperature: f32) -> Result<String>;
+    /// Un appel, sortie JSON imposée.
+    async fn complete(&self, req: Completion<'_>) -> Result<String>;
 
     /// `false` quand les deux passes doivent être sérialisées plutôt que
     /// lancées en parallèle (cf. `LocalProvider` : Ollama sur CPU).
@@ -343,6 +355,16 @@ pub async fn process_streaming(
     window: &tauri::Window,
     gen:    u64,
 ) -> Result<()> {
+    // Point d'entrée unique du traitement : la borne s'applique donc à tous
+    // les modes et à tous les providers, LanguageTool compris.
+    let length = text.chars().count();
+    if length > MAX_INPUT_CHARS {
+        anyhow::bail!(
+            "Texte trop long : {length} caractères (maximum {MAX_INPUT_CHARS}). \
+Sélectionnez un passage plus court."
+        );
+    }
+
     if config.ai_provider == "auto" {
         return process_auto(config, text, window, gen).await;
     }
@@ -604,6 +626,23 @@ const CORRECTION_TEMPERATURE: f32 = 0.0;
 /// Variation souhaitée sur les cinq styles.
 const REFORM_TEMPERATURE: f32 = 0.7;
 
+/// Budget de génération de la passe de correction : la sortie fait la taille de
+/// l'entrée, un seul champ.
+const CORRECTION_MAX_TOKENS: u32 = 1024;
+/// Budget de la passe de reformulation : cinq champs, donc ~5× l'entrée.
+///
+/// L'ancien plafond unique de 512 tokens servait les 6 champs d'un coup : avec
+/// `format: "json"`, Ollama fermait le JSON prématurément et renvoyait des
+/// champs tronqués ou vides, sans erreur remontée.
+const REFORM_MAX_TOKENS: u32 = 3072;
+
+/// Longueur maximale du texte capturé.
+///
+/// Rien ne bornait l'entrée : un Ctrl+A dans un document partait entier dans le
+/// prompt. Au-delà de cette taille on refuse explicitement plutôt que de
+/// tronquer en silence — une correction amputée est pire qu'un refus lisible.
+pub const MAX_INPUT_CHARS: usize = 2000;
+
 /// Ne nomme aucun registre : la correction n'a pas de style à choisir. L'ancien
 /// system prompt annonçait « cinq reformulations (… professionnelle, soutenue …) »
 /// même pour corriger, ce qui tirait la correction vers le registre formel.
@@ -818,9 +857,15 @@ async fn correction_pass<P: LlmProvider + ?Sized>(
     text:     &str,
     address:  Address,
 ) -> Result<String> {
+    let prompt = correction_prompt(text, address, None);
     let first = parse_correction(
         &provider
-            .complete(CORRECTION_SYSTEM, &correction_prompt(text, address, None), CORRECTION_TEMPERATURE)
+            .complete(Completion {
+                system:      CORRECTION_SYSTEM,
+                user:        &prompt,
+                temperature: CORRECTION_TEMPERATURE,
+                max_tokens:  CORRECTION_MAX_TOKENS,
+            })
             .await?,
     )?;
 
@@ -830,8 +875,14 @@ async fn correction_pass<P: LlmProvider + ?Sized>(
 
     eprintln!("[address] correction hors forme d'adresse ({address:?}) — seconde tentative");
     let note = address::retry_note(address, &[]);
+    let prompt = correction_prompt(text, address, Some(&note));
     let retry = provider
-        .complete(CORRECTION_SYSTEM, &correction_prompt(text, address, Some(&note)), CORRECTION_TEMPERATURE)
+        .complete(Completion {
+            system:      CORRECTION_SYSTEM,
+            user:        &prompt,
+            temperature: CORRECTION_TEMPERATURE,
+            max_tokens:  CORRECTION_MAX_TOKENS,
+        })
         .await
         .and_then(|raw| parse_correction(&raw));
 
@@ -854,9 +905,15 @@ async fn reform_pass<P: LlmProvider + ?Sized>(
     text:     &str,
     address:  Address,
 ) -> Result<Reformulations> {
+    let prompt = reform_prompt(text, address, None);
     let mut first = parse_reformulations(
         &provider
-            .complete(REFORM_SYSTEM, &reform_prompt(text, address, None), REFORM_TEMPERATURE)
+            .complete(Completion {
+                system:      REFORM_SYSTEM,
+                user:        &prompt,
+                temperature: REFORM_TEMPERATURE,
+                max_tokens:  REFORM_MAX_TOKENS,
+            })
             .await?,
     )?;
 
@@ -870,8 +927,14 @@ async fn reform_pass<P: LlmProvider + ?Sized>(
         offenders.join(", ")
     );
     let note = address::retry_note(address, &offenders);
+    let prompt = reform_prompt(text, address, Some(&note));
     let retry = provider
-        .complete(REFORM_SYSTEM, &reform_prompt(text, address, Some(&note)), REFORM_TEMPERATURE)
+        .complete(Completion {
+            system:      REFORM_SYSTEM,
+            user:        &prompt,
+            temperature: REFORM_TEMPERATURE,
+            max_tokens:  REFORM_MAX_TOKENS,
+        })
         .await
         .and_then(|raw| parse_reformulations(&raw));
 

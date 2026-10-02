@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use reqwest::{Client, StatusCode};
 use serde_json::json;
 
-use super::{two_pass, AiProvider, AiResult, LlmProvider};
+use super::{two_pass, AiProvider, AiResult, Completion, LlmProvider};
 
 // Endpoint de compatibilité OpenAI de Google : même format que Mistral.
 const API_URL:    &str = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
@@ -36,7 +36,7 @@ impl GeminiProvider {
 
 #[async_trait]
 impl LlmProvider for GeminiProvider {
-    async fn complete(&self, system: &str, user: &str, temperature: f32) -> Result<String> {
+    async fn complete(&self, req: Completion<'_>) -> Result<String> {
         if self.api_key.is_empty() {
             anyhow::bail!("Clé API Gemini absente (gemini_api_key vide)");
         }
@@ -44,10 +44,12 @@ impl LlmProvider for GeminiProvider {
         let body = json!({
             "model": self.model,
             "messages": [
-                { "role": "system", "content": system },
-                { "role": "user",   "content": user }
+                { "role": "system", "content": req.system },
+                { "role": "user",   "content": req.user }
             ],
-            "temperature": temperature,
+            // Pas de `max_tokens` : un plafond tronquerait une réponse
+            // légitime, et ces services n'ont pas besoin d'être bornés.
+            "temperature": req.temperature,
             "response_format": { "type": "json_object" }
         });
 

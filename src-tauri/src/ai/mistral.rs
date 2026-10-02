@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use reqwest::{Client, StatusCode};
 use serde_json::json;
 
-use super::{two_pass, AiProvider, AiResult, LlmProvider};
+use super::{two_pass, AiProvider, AiResult, Completion, LlmProvider};
 
 const API_URL: &str = "https://api.mistral.ai/v1/chat/completions";
 const MODELS_URL: &str = "https://api.mistral.ai/v1/models";
@@ -36,7 +36,7 @@ impl MistralProvider {
 
 #[async_trait]
 impl LlmProvider for MistralProvider {
-    async fn complete(&self, system: &str, user: &str, temperature: f32) -> Result<String> {
+    async fn complete(&self, req: Completion<'_>) -> Result<String> {
         if self.api_key.is_empty() {
             anyhow::bail!("Clé API Mistral absente (mistral_api_key vide)");
         }
@@ -44,10 +44,12 @@ impl LlmProvider for MistralProvider {
         let body = json!({
             "model": self.model,
             "messages": [
-                { "role": "system", "content": system },
-                { "role": "user",   "content": user }
+                { "role": "system", "content": req.system },
+                { "role": "user",   "content": req.user }
             ],
-            "temperature": temperature,
+            // Pas de `max_tokens` : un plafond tronquerait une réponse
+            // légitime, et ces services n'ont pas besoin d'être bornés.
+            "temperature": req.temperature,
             "response_format": { "type": "json_object" }
         });
 

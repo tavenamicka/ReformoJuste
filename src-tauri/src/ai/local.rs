@@ -4,7 +4,7 @@ use reqwest::Client;
 use serde_json::json;
 
 use crate::config::LocalConfig;
-use super::{two_pass, AiProvider, AiResult, LlmProvider};
+use super::{two_pass, AiProvider, AiResult, Completion, LlmProvider};
 
 /// Durée pendant laquelle Ollama garde le modèle chargé en mémoire.
 /// Par défaut Ollama le décharge au bout de 5 min : l'usage sporadique de
@@ -12,14 +12,14 @@ use super::{two_pass, AiProvider, AiResult, LlmProvider};
 /// froid (~20 s mesurés sur gemma3:4b) pour ~1 s d'inférence réelle.
 const KEEP_ALIVE: &str = "30m";
 
-/// Plafond de génération par appel. Borne un modèle qui part en boucle plutôt
-/// que de laisser la popup tourner jusqu'au timeout.
-///
-/// Limite connue : confortable pour la passe de correction (un seul champ),
-/// juste pour la passe de reformulation (5 champs) au-delà de quelques phrases
-/// — `format: "json"` fait alors fermer le JSON prématurément, donc des champs
-/// tronqués sans erreur remontée.
-const MAX_TOKENS: u32 = 512;
+// Le plafond de génération n'est plus une constante de ce fichier : il arrive
+// par `Completion::max_tokens`, chaque passe ayant son budget (cf. ai/mod.rs).
+// Borne un modèle qui part en boucle plutôt que de laisser la popup tourner
+// jusqu'au timeout.
+//
+// Limite connue : sur CPU, générer les 3072 tokens de la passe de reformulation
+// dépasse le timeout de 180 s bien avant le plafond. Ollama reste donc le repli
+// de dernier recours, utilisable sur des textes courts.
 
 pub struct LocalProvider {
     config: LocalConfig,
@@ -57,15 +57,15 @@ impl LocalProvider {
     }
 
     /// Ollama: POST /api/generate with format:"json"
-    async fn call_ollama(&self, system: &str, user: &str, temperature: f32) -> Result<String> {
+    async fn call_ollama(&self, req: &Completion<'_>) -> Result<String> {
         let body = json!({
             "model":      self.config.model,
-            "system":     system,
-            "prompt":     user,
+            "system":     req.system,
+            "prompt":     req.user,
             "stream":     false,
             "format":     "json",
             "keep_alive": KEEP_ALIVE,
-            "options":    { "temperature": temperature, "num_predict": MAX_TOKENS }
+            "options":    { "temperature": req.temperature, "num_predict": req.max_tokens }
         });
 
         let resp = self.client
@@ -82,15 +82,15 @@ impl LocalProvider {
     }
 
     /// LM Studio / any OpenAI-compatible local server
-    async fn call_openai_compat(&self, system: &str, user: &str, temperature: f32) -> Result<String> {
+    async fn call_openai_compat(&self, req: &Completion<'_>) -> Result<String> {
         let body = json!({
             "model": self.config.model,
             "messages": [
-                { "role": "system", "content": system },
-                { "role": "user",   "content": user }
+                { "role": "system", "content": req.system },
+                { "role": "user",   "content": req.user }
             ],
-            "temperature": temperature,
-            "max_tokens": MAX_TOKENS
+            "temperature": req.temperature,
+            "max_tokens": req.max_tokens
         });
 
         let resp = self.client
@@ -109,11 +109,11 @@ impl LocalProvider {
 
 #[async_trait]
 impl LlmProvider for LocalProvider {
-    async fn complete(&self, system: &str, user: &str, temperature: f32) -> Result<String> {
+    async fn complete(&self, req: Completion<'_>) -> Result<String> {
         match self.config.provider.as_str() {
-            "ollama"              => self.call_ollama(system, user, temperature).await,
+            "ollama"              => self.call_ollama(&req).await,
             "lmstudio"
-            | "openai_compatible" => self.call_openai_compat(system, user, temperature).await,
+            | "openai_compatible" => self.call_openai_compat(&req).await,
             other => anyhow::bail!("Unknown local provider: {}", other),
         }
     }
