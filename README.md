@@ -3,7 +3,7 @@
 [![CI](https://github.com/tavenamicka/ReformoJuste/actions/workflows/ci.yml/badge.svg)](https://github.com/tavenamicka/ReformoJuste/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Popup Windows déclenchée par **double Ctrl+Space** : corrige et reformule le texte sélectionné via IA.
+Popup Windows déclenchée par **double Ctrl+Space** : corrige et reformule le texte sélectionné via IA — Mistral, Google Gemini, Ollama / LM Studio en local, ou LanguageTool 100 % hors ligne, avec bascule automatique de l'un à l'autre.
 
 ---
 
@@ -11,7 +11,10 @@ Popup Windows déclenchée par **double Ctrl+Space** : corrige et reformule le t
 
 ```
 ReformoJuste/
-├── config.json                   ← Configuration utilisateur (clé API, provider…)
+├── config.json                   ← Configuration utilisateur (clés API, provider…) — non versionné
+├── config.example.json           ← Modèle de configuration
+├── setup_languagetool.ps1        ← Télécharge JRE + LanguageTool dans bundle/
+├── distribute.ps1                ← Assemble le dossier portable
 ├── package.json
 ├── bundle/                       ← Dépendances embarquées (portable)
 │   ├── jre/                      ← JRE Java (~145 Mo)
@@ -31,8 +34,10 @@ ReformoJuste/
         ├── clipboard.rs          ← Lecture/écriture presse-papier + simuler Ctrl+C/Ctrl+V
         ├── cursor.rs             ← Position curseur + calcul position popup
         └── ai/
-            ├── mod.rs            ← Trait AiProvider, clients HTTP, chaîne de repli, parser JSON
+            ├── mod.rs            ← Trait AiProvider, deux passes (correction / reformulations), chaîne de repli, timeouts
+            ├── address.rs        ← Détection tutoiement / vouvoiement (déterministe) et vérification de la sortie
             ├── mistral.rs        ← Mistral AI (cloud)
+            ├── gemini.rs         ← Google Gemini (cloud)
             ├── local.rs          ← Ollama / LM Studio / serveur OpenAI-compatible
             ├── languagetool.rs   ← Correcteur LanguageTool local (correction seule)
             └── hybrid.rs         ← LanguageTool + IA locale en parallèle
@@ -59,7 +64,7 @@ npm install
 
 # 2. Configuration — le dépôt ne versionne pas config.json (il contient la clé API)
 Copy-Item config.example.json config.json
-#    Puis renseignez "mistral_api_key" (laissez vide pour rester 100 % local)
+#    Puis renseignez "mistral_api_key" et/ou "gemini_api_key" (laissez vides pour rester 100 % local)
 
 # 3. Dépendances embarquées : JRE Temurin 21 + LanguageTool (~535 Mo)
 #    Non versionnées — ce script les télécharge dans bundle/
@@ -83,6 +88,9 @@ Modifiez `config.json` à la racine du projet (ou à côté de l'exe compilé) :
   "mistral_api_key": "…",
   "mistral_model":   "mistral-small-latest",
 
+  "gemini_api_key":  "…",
+  "gemini_model":    "gemini-3.6-flash",
+
   "local": {
     "base_url": "http://localhost:11434",
     "model":    "gemma3:4b",
@@ -103,13 +111,14 @@ Modifiez `config.json` à la racine du projet (ou à côté de l'exe compilé) :
 
 | Valeur | Comportement |
 |---|---|
-| `auto` | **Recommandé.** Chaîne de repli Mistral → Ollama → LanguageTool, avec bascule à chaud et reprise automatique |
+| `auto` | **Recommandé.** Chaîne de repli Mistral → Gemini → Ollama → LanguageTool, avec bascule à chaud et reprise automatique (le haut de la chaîne est retenté après 90 s) |
 | `mistral` | Mistral API uniquement |
+| `gemini` | Google Gemini API uniquement |
 | `local` | Ollama / LM Studio uniquement |
 | `languagetool` | Correction seule, 100 % hors ligne, pas de reformulations |
 | `hybrid` | LanguageTool (correction) + Ollama (reformulations) en parallèle |
 
-En mode `auto`, la JVM LanguageTool n'est **pas** démarrée tant que Mistral ou Ollama répondent : elle coûte ~875 Mo de RAM et ~8 s de démarrage pour un rôle de dernier recours.
+En mode `auto`, un maillon dont la clé API est vide est simplement sauté. La JVM LanguageTool n'est **pas** démarrée tant que Mistral, Gemini ou Ollama répondent : elle coûte ~875 Mo de RAM et ~8 s de démarrage pour un rôle de dernier recours.
 
 ### Providers locaux
 
@@ -120,6 +129,16 @@ En mode `auto`, la JVM LanguageTool n'est **pas** démarrée tant que Mistral ou
 | openai_compatible | Tout serveur compatible OpenAI | selon config |
 
 > **Ollama :** lancez `ollama serve` avant de démarrer l'app, et vérifiez que le modèle est disponible (`ollama list`).
+
+---
+
+## Correction et reformulations
+
+Le texte passe par **deux passes distinctes** : la correction (orthographe, grammaire, typographie) est traitée séparément des reformulations (Simple, Pro, Soutenu, Court, Créatif), chargées à la demande via **Reformuler ▾**.
+
+- **Forme d'adresse** : le tutoiement / vouvoiement du texte est détecté en Rust (`ai/address.rs`), injecté dans le prompt comme un fait, puis la sortie est vérifiée. Les petits modèles tendaient à basculer vers le vouvoiement sur les registres « Pro » et « Soutenu ».
+- **LanguageTool** : les suggestions sont filtrées et les décalages calculés en UTF-16 (accents, emojis).
+- **Indisponibilité** : quand aucune IA n'est joignable, la popup affiche la raison (clé invalide, quota épuisé, réseau…) au lieu d'un message générique.
 
 ---
 
@@ -156,7 +175,7 @@ Copiez `config.json` à côté de l'exe pour la production.
 1. Lancez `reformojuste.exe` → icône dans la barre des tâches système
 2. Dans n'importe quelle application, **sélectionnez du texte**
 3. Appuyez **deux fois sur Ctrl+Space** en moins de 400 ms
-4. La popup apparaît près du curseur avec 6 onglets
+4. La popup apparaît près du curseur : onglet **Correction**, et **Reformuler ▾** pour les 5 reformulations
 5. Cliquez **Copier** pour coller le résultat
 6. **Échap** ou ✕ pour fermer la popup
 7. Clic droit sur l'icône → **Quitter** pour arrêter l'app
@@ -183,7 +202,7 @@ Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name Ref
 
 ## Performances
 
-Mesures sur le poste de dev (2026-08-21), texte court d'une phrase :
+Mesures sur le poste de dev (2026-08-21, avant l'ajout de Gemini), texte court d'une phrase :
 
 | Chemin | Latence | Note |
 |---|---|---|
@@ -194,7 +213,7 @@ Mesures sur le poste de dev (2026-08-21), texte court d'une phrase :
 
 Empreinte mémoire au repos : **~354 Mo** (exe + WebView2). La JVM LanguageTool ajoute ~875 Mo, mais seulement si la chaîne de repli descend jusqu'à elle.
 
-Tous les appels réseau portent un timeout (60 s IA, 20 s LanguageTool, 3 s pour les sondes) : une requête bloquée ne peut plus laisser la popup tourner indéfiniment.
+Tous les appels réseau portent un timeout (60 s IA cloud, 180 s Ollama, 20 s LanguageTool, 5 s pour les sondes) : une requête bloquée ne peut plus laisser la popup tourner indéfiniment.
 
 ---
 
@@ -213,6 +232,17 @@ Dans `src-tauri/src/hotkey.rs`, modifiez la ligne :
 EventType::KeyPress(Key::Space) if s.ctrl_held => {
 ```
 Remplacez `Key::Space` par la touche souhaitée (ex. `Key::KeyJ`, `Key::KeyK`…).
+
+---
+
+## Tests et CI
+
+```powershell
+cd src-tauri
+cargo test
+```
+
+Le workflow CI (GitHub Actions et Gitea Actions) exécute `cargo check` et `cargo test` côté Rust.
 
 ---
 
