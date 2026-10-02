@@ -7,11 +7,13 @@ on:
 
 jobs:
   rust-check:
-    # Verifie seulement la compilation du cote Rust/Tauri (cargo check).
-    # L'app cible Windows (distribution portable via distribute.ps1) : ce
-    # runner Linux ne peut ni compiler la cible finale ni executer de tests
-    # (aucune suite de tests sur ce depot actuellement) - ce job attrape les
-    # erreurs de code cote Rust, rien de plus.
+    # Verifie la compilation (cargo check) puis la suite de tests (cargo test)
+    # du cote Rust/Tauri. L'app cible Windows (distribution portable via
+    # distribute.ps1) : ce runner Linux ne produit pas la cible finale, il
+    # attrape les erreurs de code et les regressions de logique pure.
+    # Les tests de autostart.rs sont #[cfg(all(test, target_os = "windows"))]
+    # (ils ecrivent dans la cle Run) : ils ne tournent pas ici. Seuls ceux de
+    # ai/ sont executes - forme d'adresse, rendu des prompts, parsing JSON.
     # ubuntu-22.04 plutot que ubuntu-latest (24.04) : Tauri v1 depend du crate
     # soup2-sys (libsoup 2.4), incompatible avec libwebkit2gtk-4.1/libsoup3
     # qui a remplace la 4.0 sur 24.04 (echec de build confirme). 22.04 a
@@ -32,3 +34,5 @@ jobs:
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
       - run: cargo check --manifest-path src-tauri/Cargo.toml
+      - name: Tests unitaires (ai/ ; autostart est gate Windows)
+        run: cargo test --manifest-path src-tauri/Cargo.toml
