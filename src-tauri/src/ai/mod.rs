@@ -1028,3 +1028,100 @@ mod tests {
         assert!(r.offenders(Address::Unknown).is_empty());
     }
 }
+
+// ── Mesure manuelle de la forme d'adresse ─────────────────────────────────────
+//
+// Reprend le protocole de la Phase 9 (cf. suivi.md) de façon reproductible : le
+// script d'origine n'avait pas été conservé, et ses deux réserves de méthode
+// sont ici levées — les prompts sont ceux réellement compilés (appel direct à
+// `two_pass`) et le comptage utilise `address::violates`, qui gère l'apostrophe
+// typographique U+2019 que l'ancien détecteur ratait.
+//
+// Nécessite le réseau et les clés : tests `#[ignore]`, à lancer à la main.
+//   cargo test --manifest-path src-tauri/Cargo.toml mesure_ -- --ignored --nocapture
+#[cfg(test)]
+mod mesure {
+    use super::*;
+
+    /// La première phrase est celle documentée en Phase 9. Les trois autres
+    /// reproduisent le profil qui y est décrit (élisions « t'es dispo »,
+    /// abréviations « stp », plus un contrôle en vouvoiement), le jeu exact
+    /// n'ayant pas été conservé — les totaux sont donc comparables en ordre de
+    /// grandeur, pas strictement identiques.
+    const PHRASES: [(&str, &str); 4] = [
+        ("tutoiement/elisions",
+         "T'inquiete pas, je m'en occupe. Tu me redis quand t'es dispo."),
+        ("tutoiement/abrev",
+         "Stp envoie moi le doc quand tu peux, c'est pour la reunion de demain."),
+        ("tutoiement/familier",
+         "T'as vu le mail de Paul ? Tu penses qu'on peut repondre aujourd'hui ?"),
+        ("vouvoiement/controle",
+         "Pourriez vous me confirmer votre presence a la reunion de demain ?"),
+    ];
+
+    fn fields(r: &AiResult) -> [(&'static str, &str); 6] {
+        [
+            ("correction",   r.correction.as_str()),
+            ("simple",       r.simple.as_str()),
+            ("professional", r.professional.as_str()),
+            ("formal",       r.formal.as_str()),
+            ("short",        r.short.as_str()),
+            ("creative",     r.creative.as_str()),
+        ]
+    }
+
+    async fn run<P: LlmProvider>(label: &str, provider: &P) {
+        println!("\n######## {label} ########");
+        let (mut ecarts, mut champs, mut echecs) = (0usize, 0usize, 0usize);
+        let mut correction_ok = 0usize;
+
+        for (kind, text) in PHRASES {
+            let expected = address::detect(text);
+            println!("\n[{kind}] detecte: {expected:?}\n  SOURCE     | {text}");
+
+            match two_pass(provider, text).await {
+                Ok(r) => {
+                    for (name, value) in fields(&r) {
+                        champs += 1;
+                        let bad = address::violates(expected, value);
+                        if bad {
+                            ecarts += 1;
+                        }
+                        if name == "correction" && !bad {
+                            correction_ok += 1;
+                        }
+                        println!("  {} {name:<12} | {value}", if bad { "ECART" } else { "  ok " });
+                    }
+                }
+                Err(e) => {
+                    echecs += 1;
+                    println!("  ECHEC : {e}");
+                }
+            }
+        }
+
+        println!("\n==== {label} : {ecarts} ecart(s) / {champs} champs, \
+correction juste {correction_ok}/{}, {echecs} echec(s) ====", PHRASES.len());
+    }
+
+    #[tokio::test]
+    #[ignore = "appelle l'API Mistral : lancer manuellement"]
+    async fn mesure_mistral() {
+        let config = crate::config::load().expect("config.json introuvable");
+        assert!(!config.mistral_api_key.is_empty(), "mistral_api_key vide");
+        let provider = mistral::MistralProvider::new(
+            config.mistral_api_key.clone(),
+            config.mistral_model.clone(),
+        );
+        run(&format!("Mistral / {}", config.mistral_model), &provider).await;
+    }
+
+    #[tokio::test]
+    #[ignore = "appelle Ollama en local : lent sur CPU, lancer manuellement"]
+    async fn mesure_ollama() {
+        let config = crate::config::load().expect("config.json introuvable");
+        let local = config.local.clone().expect("section local absente");
+        let label = format!("Ollama / {}", local.model);
+        run(&label, &local::LocalProvider::new(local)).await;
+    }
+}
