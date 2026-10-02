@@ -7,6 +7,16 @@ Popup Windows déclenchée par **double Ctrl+Space** : corrige et reformule le t
 
 ---
 
+## Aperçu
+
+Texte sélectionné dans n'importe quelle application, puis double Ctrl+Space : la popup propose la correction (modifications surlignées) et, via **Reformuler ▾**, cinq reformulations. Captures réalisées sur un texte fictif.
+
+![Onglet Correction : fautes barrées en rouge, corrections en vert](docs/screenshots/correction.png)
+
+![Onglet Reformuler, registre Pro](docs/screenshots/reformulation.png)
+
+---
+
 ## Arborescence
 
 ```
