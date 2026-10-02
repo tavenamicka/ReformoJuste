@@ -3,8 +3,7 @@ use async_trait::async_trait;
 use reqwest::{Client, StatusCode};
 use serde_json::json;
 
-use super::mistral::SYSTEM_PROMPT;
-use super::{build_prompt, parse_response, AiProvider, AiResult};
+use super::{two_pass, AiProvider, AiResult, LlmProvider};
 
 // Endpoint de compatibilité OpenAI de Google : même format que Mistral.
 const API_URL:    &str = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
@@ -36,8 +35,8 @@ impl GeminiProvider {
 }
 
 #[async_trait]
-impl AiProvider for GeminiProvider {
-    async fn process(&self, text: &str) -> Result<AiResult> {
+impl LlmProvider for GeminiProvider {
+    async fn complete(&self, system: &str, user: &str, temperature: f32) -> Result<String> {
         if self.api_key.is_empty() {
             anyhow::bail!("Clé API Gemini absente (gemini_api_key vide)");
         }
@@ -45,10 +44,10 @@ impl AiProvider for GeminiProvider {
         let body = json!({
             "model": self.model,
             "messages": [
-                { "role": "system", "content": SYSTEM_PROMPT },
-                { "role": "user",   "content": build_prompt(text) }
+                { "role": "system", "content": system },
+                { "role": "user",   "content": user }
             ],
-            "temperature": 0.7,
+            "temperature": temperature,
             "response_format": { "type": "json_object" }
         });
 
@@ -76,10 +75,16 @@ impl AiProvider for GeminiProvider {
         }
 
         let data: serde_json::Value = resp.json().await?;
-        let content = data["choices"][0]["message"]["content"]
+        data["choices"][0]["message"]["content"]
             .as_str()
-            .ok_or_else(|| anyhow::anyhow!("Réponse Gemini vide ou malformée : {:?}", data))?;
+            .map(str::to_string)
+            .ok_or_else(|| anyhow::anyhow!("Réponse Gemini vide ou malformée : {:?}", data))
+    }
+}
 
-        parse_response(content)
+#[async_trait]
+impl AiProvider for GeminiProvider {
+    async fn process(&self, text: &str) -> Result<AiResult> {
+        two_pass(self, text).await
     }
 }

@@ -3,15 +3,10 @@ use async_trait::async_trait;
 use reqwest::{Client, StatusCode};
 use serde_json::json;
 
-use super::{build_prompt, parse_response, AiProvider, AiResult};
+use super::{two_pass, AiProvider, AiResult, LlmProvider};
 
 const API_URL: &str = "https://api.mistral.ai/v1/chat/completions";
 const MODELS_URL: &str = "https://api.mistral.ai/v1/models";
-
-pub(super) const SYSTEM_PROMPT: &str = "Tu es un correcteur orthographique et grammatical en FRANÇAIS. \
-Tu corriges les fautes d'orthographe, de grammaire et de conjugaison sans changer le sens du texte, \
-puis tu proposes cinq reformulations (simple, professionnelle, soutenue, courte et créative). \
-Tu réponds toujours en français et UNIQUEMENT avec un objet JSON valide.";
 
 /// Provider basé sur l'API REST de Mistral (cloud).
 pub struct MistralProvider {
@@ -40,8 +35,8 @@ impl MistralProvider {
 }
 
 #[async_trait]
-impl AiProvider for MistralProvider {
-    async fn process(&self, text: &str) -> Result<AiResult> {
+impl LlmProvider for MistralProvider {
+    async fn complete(&self, system: &str, user: &str, temperature: f32) -> Result<String> {
         if self.api_key.is_empty() {
             anyhow::bail!("Clé API Mistral absente (mistral_api_key vide)");
         }
@@ -49,10 +44,10 @@ impl AiProvider for MistralProvider {
         let body = json!({
             "model": self.model,
             "messages": [
-                { "role": "system", "content": SYSTEM_PROMPT },
-                { "role": "user",   "content": build_prompt(text) }
+                { "role": "system", "content": system },
+                { "role": "user",   "content": user }
             ],
-            "temperature": 0.7,
+            "temperature": temperature,
             "response_format": { "type": "json_object" }
         });
 
@@ -79,10 +74,16 @@ impl AiProvider for MistralProvider {
         }
 
         let data: serde_json::Value = resp.json().await?;
-        let content = data["choices"][0]["message"]["content"]
+        data["choices"][0]["message"]["content"]
             .as_str()
-            .ok_or_else(|| anyhow::anyhow!("Réponse Mistral vide ou malformée : {:?}", data))?;
+            .map(str::to_string)
+            .ok_or_else(|| anyhow::anyhow!("Réponse Mistral vide ou malformée : {:?}", data))
+    }
+}
 
-        parse_response(content)
+#[async_trait]
+impl AiProvider for MistralProvider {
+    async fn process(&self, text: &str) -> Result<AiResult> {
+        two_pass(self, text).await
     }
 }
