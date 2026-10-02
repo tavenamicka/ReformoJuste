@@ -1059,6 +1059,17 @@ mod mesure {
          "Pourriez vous me confirmer votre presence a la reunion de demain ?"),
     ];
 
+    /// Config du banc. `REFORMOJUSTE_CONFIG` pointe un autre `config.json` —
+    /// par exemple celui d'un dossier portable qui porte une clé absente de la
+    /// racine — sans modifier la config de développement.
+    fn config() -> Config {
+        match std::env::var("REFORMOJUSTE_CONFIG") {
+            Ok(path) => crate::config::load_from(std::path::Path::new(&path))
+                .unwrap_or_else(|e| panic!("config {path} illisible : {e}")),
+            Err(_) => crate::config::load().expect("config.json introuvable"),
+        }
+    }
+
     fn fields(r: &AiResult) -> [(&'static str, &str); 6] {
         [
             ("correction",   r.correction.as_str()),
@@ -1107,7 +1118,7 @@ correction juste {correction_ok}/{}, {echecs} echec(s) ====", PHRASES.len());
     #[tokio::test]
     #[ignore = "appelle l'API Mistral : lancer manuellement"]
     async fn mesure_mistral() {
-        let config = crate::config::load().expect("config.json introuvable");
+        let config = config();
         assert!(!config.mistral_api_key.is_empty(), "mistral_api_key vide");
         let provider = mistral::MistralProvider::new(
             config.mistral_api_key.clone(),
@@ -1117,9 +1128,24 @@ correction juste {correction_ok}/{}, {echecs} echec(s) ====", PHRASES.len());
     }
 
     #[tokio::test]
+    #[ignore = "appelle l'API Gemini : lancer manuellement"]
+    async fn mesure_gemini() {
+        let config = config();
+        assert!(
+            !config.gemini_api_key.is_empty(),
+            "gemini_api_key vide — pointer REFORMOJUSTE_CONFIG sur un config.json qui la porte"
+        );
+        let provider = gemini::GeminiProvider::new(
+            config.gemini_api_key.clone(),
+            config.gemini_model.clone(),
+        );
+        run(&format!("Gemini / {}", config.gemini_model), &provider).await;
+    }
+
+    #[tokio::test]
     #[ignore = "appelle Ollama en local : lent sur CPU, lancer manuellement"]
     async fn mesure_ollama() {
-        let config = crate::config::load().expect("config.json introuvable");
+        let config = config();
         let local = config.local.clone().expect("section local absente");
         let label = format!("Ollama / {}", local.model);
         run(&label, &local::LocalProvider::new(local)).await;

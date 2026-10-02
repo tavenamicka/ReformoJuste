@@ -1,7 +1,7 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Config {
@@ -27,7 +27,12 @@ fn default_mistral_model() -> String {
 }
 
 fn default_gemini_model() -> String {
-    "gemini-2.5-flash".to_string()
+    // `gemini-2.5-flash` renvoie 404 « no longer available to new users »
+    // (mesuré 2026-10-02) : le maillon Gemini de la chaîne de repli était mort
+    // pour toute nouvelle clé. `/v1beta/openai/models` le liste pourtant
+    // encore — le catalogue n'est pas un droit d'accès, et `ping()` répondait
+    // donc 200 pour un modèle inutilisable.
+    "gemini-3.6-flash".to_string()
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -88,11 +93,17 @@ fn config_path() -> PathBuf {
         .join("config.json")
 }
 
-pub fn load() -> Result<Config> {
-    let path = config_path();
-    let content = fs::read_to_string(&path)
+/// Charge une config depuis un chemin donné. Séparé de [`load`] pour que les
+/// bancs de mesure puissent pointer un autre `config.json` (cf. `ai/mod.rs`,
+/// module `mesure`) sans toucher à celui de développement.
+pub fn load_from(path: &Path) -> Result<Config> {
+    let content = fs::read_to_string(path)
         .map_err(|e| anyhow::anyhow!("Cannot read {}: {}", path.display(), e))?;
     // Le Bloc-notes / PowerShell 5.1 ajoutent un BOM UTF-8 que serde_json refuse.
     let cfg: Config = serde_json::from_str(content.trim_start_matches('\u{feff}'))?;
     Ok(cfg)
+}
+
+pub fn load() -> Result<Config> {
+    load_from(&config_path())
 }
